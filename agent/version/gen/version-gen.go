@@ -68,18 +68,29 @@ func gitDirty() bool {
 }
 
 func gitHash() string {
-	cmd := exec.Command("git", "rev-parse", "--short=8", "HEAD")
-	hash, err := cmd.Output()
-	if err != nil {
-		releaseCommitStr, readFileErr := os.ReadFile(filepath.Join("..", "..", "RELEASE_COMMIT"))
-		hashStr := strings.TrimSpace(string(releaseCommitStr))
-		if readFileErr != nil || hashStr == "" || len(hashStr) < 8 {
+	releaseCommitStr, readFileErr := os.ReadFile(filepath.Join("..", "..", "RELEASE_COMMIT"))
+	hashStr := strings.TrimSpace(string(releaseCommitStr))
+	if readFileErr != nil {
+		log.Printf("FYI (doesn't matter): Got error when executing os.ReadFile for RELEASE_COMMIT file: %v",
+			readFileErr)
+		cmd := exec.Command("git", "rev-parse", "--short=8", "HEAD")
+		hash, err := cmd.Output()
+		if err != nil {
+			log.Printf("Got error when executing git rev-parse --short=8: %v",
+				err)
 			return "UNKNOWN"
 		}
-		// return short hash instead of full hash
-		return hashStr[0:8]
+		log.Printf("hash value from git rev-parse --short=8: %s", hash)
+		return strings.TrimSpace(string(hash))
 	}
-	return strings.TrimSpace(string(hash))
+	if hashStr == "" || len(hashStr) < 8 {
+		log.Printf("ERROR: hashStr is empty or has length less than 8. hashStr value: %s", hashStr)
+		return "UNKNOWN"
+	}
+	log.Printf("RELEASE_COMMIT file contents (with spaces trimmed): %s", hashStr)
+	log.Printf("short hash (first 8 characters): %s", hashStr[0:8])
+	// return short hash instead of full hash
+	return hashStr[0:8]
 }
 
 // version-gen is a simple program that generates the agent's version file,
