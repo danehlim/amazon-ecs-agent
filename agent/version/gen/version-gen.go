@@ -14,7 +14,6 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -72,7 +71,13 @@ func gitHash() string {
 	cmd := exec.Command("git", "rev-parse", "--short=8", "HEAD")
 	hash, err := cmd.Output()
 	if err != nil {
-		return "UNKNOWN"
+		releaseCommitStr, readFileErr := os.ReadFile(filepath.Join("..", "..", "RELEASE_COMMIT"))
+		hashStr := strings.TrimSpace(string(releaseCommitStr))
+		if readFileErr != nil || hashStr == "" || len(hashStr) < 8 {
+			return "UNKNOWN"
+		}
+		// return short hash instead of full hash
+		return hashStr[0:8]
 	}
 	return strings.TrimSpace(string(hash))
 }
@@ -82,7 +87,7 @@ func gitHash() string {
 // cleanliness.
 func main() {
 
-	versionStr, _ := ioutil.ReadFile(filepath.Join("..", "..", "VERSION"))
+	versionStr, _ := os.ReadFile(filepath.Join("..", "..", "VERSION"))
 
 	// default values
 	info := versionInfo{
