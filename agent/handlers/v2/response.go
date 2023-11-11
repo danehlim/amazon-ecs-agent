@@ -14,9 +14,9 @@
 package v2
 
 import (
+	"github.com/aws/amazon-ecs-agent/ecs-agent/api/ecs"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 
-	"github.com/aws/amazon-ecs-agent/agent/api"
 	apicontainer "github.com/aws/amazon-ecs-agent/agent/api/container"
 	"github.com/aws/amazon-ecs-agent/agent/engine/dockerstate"
 	v1 "github.com/aws/amazon-ecs-agent/agent/handlers/v1"
@@ -38,7 +38,7 @@ const minimumCPUUnit = 2
 func NewTaskResponse(
 	taskARN string,
 	state dockerstate.TaskEngineState,
-	ecsClient api.ECSClient,
+	ecsClient ecs.ECSClient,
 	cluster string,
 	az string,
 	containerInstanceArn string,
@@ -105,7 +105,7 @@ func NewTaskResponse(
 }
 
 // propagateTagsToMetadata retrieves container instance and task tags from ECS
-func propagateTagsToMetadata(ecsClient api.ECSClient, containerInstanceARN, taskARN string, resp *tmdsv2.TaskResponse, includeV4Metadata bool) {
+func propagateTagsToMetadata(ecsClient ecs.ECSClient, containerInstanceARN, taskARN string, resp *tmdsv2.TaskResponse, includeV4Metadata bool) {
 	containerInstanceTags, err := ecsClient.GetResourceTags(containerInstanceARN)
 
 	if err == nil {
