@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/amazon-ecs-agent/ecs-agent/logger"
+	loggerfield "github.com/aws/amazon-ecs-agent/ecs-agent/logger/field"
 	"github.com/aws/amazon-ecs-agent/ecs-agent/stats"
 	"github.com/aws/amazon-ecs-agent/ecs-agent/tcs/model/ecstcs"
 	"github.com/cihub/seelog"
@@ -60,6 +62,16 @@ func (queue *Queue) Reset() {
 	}
 }
 
+// AddContainerStat adds a new set of container stats to the queue.
+func (queue *Queue) AddContainerStat(dockerStat *types.StatsJSON, lastStatBeforeLastRestart *types.StatsJSON,
+	containerHasRestartedBefore bool) error {
+	if containerHasRestartedBefore {
+		dockerStat = aggregatedDockerStatAcrossRestarts(dockerStat, lastStatBeforeLastRestart)
+	}
+
+	return queue.Add(dockerStat)
+}
+
 // Add adds a new set of container stats to the queue.
 func (queue *Queue) Add(dockerStat *types.StatsJSON) error {
 	queue.setLastStat(dockerStat)
@@ -69,6 +81,36 @@ func (queue *Queue) Add(dockerStat *types.StatsJSON) error {
 	}
 	queue.add(stat)
 	return nil
+}
+
+// TODO: Aggregate other data besides just total CPU usage and peak memory usage. Only these two data are used for proof of concept.
+func aggregatedDockerStatAcrossRestarts(dockerStat, lastStatBeforeLastRestart *types.StatsJSON) *types.StatsJSON {
+	logger.Debug("About to aggregate Docker stat across restart(s)", logger.Fields{
+		"preLastRestartTotalCPUTimeConsumed": lastStatBeforeLastRestart.CPUStats.CPUUsage.TotalUsage,
+		"preLastRestartMaxMemoryUsage":       lastStatBeforeLastRestart.MemoryStats.MaxUsage,
+		loggerfield.ContainerName:            dockerStat.Name,
+		loggerfield.DockerId:                 dockerStat.ID,
+	})
+
+	dockerStat.CPUStats.CPUUsage.TotalUsage += lastStatBeforeLastRestart.CPUStats.CPUUsage.TotalUsage
+	dockerStat.MemoryStats.MaxUsage = max(dockerStat.MemoryStats.MaxUsage, lastStatBeforeLastRestart.MemoryStats.MaxUsage)
+
+	logger.Debug("Aggregated Docker stat across restart(s)", logger.Fields{
+		"aggregatedTotalCPUTimeConsumed": dockerStat.CPUStats.CPUUsage.TotalUsage,
+		"aggregatedMaxMemoryUsage":       dockerStat.MemoryStats.MaxUsage,
+		loggerfield.ContainerName:        dockerStat.Name,
+		loggerfield.DockerId:             dockerStat.ID,
+	})
+
+	return dockerStat
+}
+
+// TODO: Below can be written using Go generics and placed in a utils package.
+func max(a, b uint64) uint64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (queue *Queue) setLastStat(stat *types.StatsJSON) {

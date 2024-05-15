@@ -487,13 +487,13 @@ func (mtask *managedTask) handleContainerChange(containerChange dockerContainerC
 		exitCode := event.DockerContainerMetadata.ExitCode
 		shouldRestart, reason := container.ShouldRestart(exitCode)
 		if shouldRestart {
-			defer container.RecordRestart()
 			logger.Info("Restarting container", eventLogFields,
 				logger.Fields{
 					"restartCount":  container.GetRestartCount(),
 					"lastRestartAt": container.GetLastRestartAt().UTC().Format(time.RFC3339),
 				})
 			mtask.engine.startContainer(mtask.Task, container)
+			container.RecordRestart()
 			logger.Info("Restarted container", eventLogFields,
 				logger.Fields{
 					"restartCount":  container.GetRestartCount(),

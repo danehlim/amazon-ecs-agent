@@ -338,6 +338,13 @@ type Container struct {
 	RestartPolicy RestartPolicy `json:"restartPolicy,omitempty"`
 	RestartCount  int           `json:"restartCount,omitempty"`
 	LastRestartAt time.Time     `json:"lastRestartAt,omitempty"`
+
+	// RestartAggregationDataForStatsUnsafe specifies the restart aggregation data used for stats of the container.
+	// It is exposed outside this container package so that it is marshalled/unmarshalled in JSON body while
+	// saving state.
+	// NOTE: Do not access  RestartAggregationDataForStatsUnsafe directly. Instead, use
+	// `GetRestartAggregationDataForStats` and `SetRestartAggregationDataForStats`.
+	RestartAggregationDataForStatsUnsafe ContainerRestartAggregationDataForStats `json:"RestartAggregationDataForStats,omitempty"`
 }
 
 type DependsOn struct {
@@ -352,6 +359,11 @@ type RestartPolicy struct {
 	// "Enabled": true,          # required. Valid values: true | false. Default=false
 	// "IgnoredExitCodes": [0],  # optional. Default=[0] (restart on failure)
 	// "AttemptResetPeriod": 300  # optional. Valid values: 60-1800. Default=300
+}
+
+type ContainerRestartAggregationDataForStats struct {
+	LastRestartDetectedAt     time.Time       `json:"LastRestartDetectedAt,omitempty"`
+	LastStatBeforeLastRestart types.StatsJSON `json:"LastStatBeforeLastRestart,omitempty"`
 }
 
 // DockerContainer is a mapping between containers-as-docker-knows-them and
@@ -1611,4 +1623,20 @@ func (c *Container) GetImageName() string {
 	defer c.lock.RUnlock()
 	containerImage := strings.Split(c.Image, ":")[0]
 	return containerImage
+}
+
+// GetRestartAggregationDataForStats gets the restart aggregation data for stats of a container.
+func (c *Container) GetRestartAggregationDataForStats() ContainerRestartAggregationDataForStats {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	return c.RestartAggregationDataForStatsUnsafe
+}
+
+// SetRestartAggregationDataForStats sets the restart aggregation data for stats of a container.
+func (c *Container) SetRestartAggregationDataForStats(restartAggregationDataForStats ContainerRestartAggregationDataForStats) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.RestartAggregationDataForStatsUnsafe = restartAggregationDataForStats
 }
