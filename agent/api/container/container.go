@@ -28,7 +28,6 @@ import (
 	"github.com/aws/amazon-ecs-agent/ecs-agent/credentials"
 	"github.com/aws/amazon-ecs-agent/ecs-agent/logger"
 	"github.com/aws/amazon-ecs-agent/ecs-agent/logger/field"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/cihub/seelog"
 	"github.com/docker/docker/api/types"
@@ -322,9 +321,13 @@ type Container struct {
 	// pause container
 	ContainerTornDownUnsafe bool `json:"containerTornDown"`
 
-	createdAt  time.Time
-	startedAt  time.Time
-	finishedAt time.Time
+	createdAt time.Time
+	// StartedAtUnsafe specifies the started at time of the container.
+	// It is exposed outside this container package so that it is marshalled/unmarshalled in JSON body while
+	// saving state.
+	// NOTE: Do not access StartedAtUnsafe directly. Instead, use `GetStartedAt` and `SetStartedAt`.
+	StartedAtUnsafe time.Time `json:"startedAt,omitempty"`
+	finishedAt      time.Time
 
 	labels map[string]string
 
@@ -339,10 +342,13 @@ type Container struct {
 	RestartCount  int           `json:"restartCount,omitempty"`
 	LastRestartAt time.Time     `json:"lastRestartAt,omitempty"`
 
+	// setStartedAtOnce is used to set the value of the container's started at time only the first time SetStartedAt is invoked.
+	setStartedAtOnce sync.Once
+
 	// RestartAggregationDataForStatsUnsafe specifies the restart aggregation data used for stats of the container.
 	// It is exposed outside this container package so that it is marshalled/unmarshalled in JSON body while
 	// saving state.
-	// NOTE: Do not access  RestartAggregationDataForStatsUnsafe directly. Instead, use
+	// NOTE: Do not access RestartAggregationDataForStatsUnsafe directly. Instead, use
 	// `GetRestartAggregationDataForStats` and `SetRestartAggregationDataForStats`.
 	RestartAggregationDataForStatsUnsafe ContainerRestartAggregationDataForStats `json:"RestartAggregationDataForStats,omitempty"`
 }
@@ -696,7 +702,7 @@ func (c *Container) ShouldRestart(exitCode *int) (bool, string) {
 	// if the container has not been restarted yet, then consider the container start time
 	// as the "last restart" time.
 	if c.RestartCount == 0 {
-		if time.Since(c.startedAt) < c.RestartPolicy.AttemptResetPeriod {
+		if time.Since(c.StartedAtUnsafe) < c.RestartPolicy.AttemptResetPeriod {
 			return false, fmt.Sprintf("container started less than AttemptResetPeriod [%s] ago", c.RestartPolicy.AttemptResetPeriod)
 		}
 		return true, ""
@@ -755,7 +761,11 @@ func (c *Container) SetStartedAt(startedAt time.Time) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	c.startedAt = startedAt
+	c.setStartedAtOnce.Do(func() {
+		if c.StartedAtUnsafe.IsZero() {
+			c.StartedAtUnsafe = startedAt
+		}
+	})
 }
 
 // SetFinishedAt sets the timestamp for container's stopped time
@@ -783,7 +793,7 @@ func (c *Container) GetStartedAt() time.Time {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	return c.startedAt
+	return c.StartedAtUnsafe
 }
 
 // GetFinishedAt sets the timestamp for container's stopped time
