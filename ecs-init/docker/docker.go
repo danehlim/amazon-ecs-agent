@@ -16,6 +16,7 @@ package docker
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -235,6 +236,39 @@ func (c *client) findAgentContainer() (string, error) {
 
 // StartAgent starts the Agent in Docker and returns the exit code from the container
 func (c *client) StartAgent() (int, error) {
+	// To reproduce NVIDIA GPU device availability race condition, launch an ECS-Optimized GPU AMI with below userdata:
+	// ```
+	// #!/bin/bash
+	// sudo modprobe -r nvidia_drm
+	// sudo modprobe -r nvidia_modeset
+	// sudo modprobe -r nvidia_uvm
+	// sudo systemctl stop nvidia-persistenced
+	// sudo modprobe -r nvidia
+	// sudo rm -rf /dev/nvidia*
+	// ```
+	//
+	// The userdata removes NVIDIA modules, stops nvidia-persistenced, and removes NVIDIA GPU device files.
+	// This makes sure that NVIDIA GPU device files are not present on the instance during PRESTART action.
+	//
+	// Once START action is reached, we must perform the below to add back NVIDIA modules, start nvidia-persistenced,
+	// and regenerate NVIDIA GPU device files. This must be done prior to environment variables from files being loaded
+	// as part of StartAgent().
+	generateAndRunCommandAndLogError("modprobe", "nvidia")
+	generateAndRunCommandAndLogError("systemctl", "start", "nvidia-persistenced")
+	generateAndRunCommandAndLogError("modprobe", "nvidia_uvm")
+	generateAndRunCommandAndLogError("modprobe", "nvidia_modeset")
+	generateAndRunCommandAndLogError("modprobe", "nvidia_drm")
+	generateAndRunCommandAndLogError("nvidia-smi")
+
+	// In this NVIDIA GPU device availability race condition, NVIDIA GPU info file creation never gets triggered during
+	// PRESTART action, causing ECS Agent to later run into the below error when attempting to initialize its NVIDIA
+	// GPU manager:
+	// 		msg="Config for GPU support is enabled, but GPU information is not found; continuing without it"
+	//		module=nvidia_gpu_manager_unix.go
+
+	// Wait a conservative amount of time here for NVIDIA GPU device files to be present on the instance.
+	time.Sleep(45 * time.Second)
+
 	envVarsFromFiles := c.LoadEnvVars()
 
 	hostConfig := c.getHostConfig(envVarsFromFiles)
@@ -373,6 +407,9 @@ func (c *client) LoadEnvVars() map[string]string {
 	for envKey, envValue := range c.loadCustomInstanceEnvVars() {
 		if envKey == config.GPUSupportEnvVar && envValue == "true" {
 			if !nvidiaGPUDevicesPresent() {
+				// TODO: In the event env variable with key config.GPUSupportEnvVar has value "true",
+				// we should implement a mechanism to wait an adequate time for NVIDIA GPU devices to be present
+				// (and/or after some timeout) before continuing.
 				log.Warn("No GPU devices found, ignoring the GPU support config")
 				continue
 			}
@@ -623,4 +660,22 @@ func isDomainJoined() bool {
 	}
 
 	return true
+}
+
+func generateAndRunCommandAndLogError(name string, arg ...string) {
+	cmd := exec.Command(name, arg...)
+	err := runCmd(cmd)
+	if err != nil {
+		log.Errorf("error running command \"%s %s\": %v", cmd.Path, strings.Join(cmd.Args, " "), err)
+	}
+}
+
+func runCmd(cmd *exec.Cmd) error {
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		return err
+	}
+	return errors.New(stderr.String())
 }
