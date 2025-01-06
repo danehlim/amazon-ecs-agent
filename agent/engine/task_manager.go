@@ -555,6 +555,17 @@ func (mtask *managedTask) handleContainerChange(containerChange dockerContainerC
 		// Save the new task status to database.
 		mtask.engine.saveTaskData(mtask.Task)
 	}
+
+	if container.Name == "instance-service-connect-relay" &&
+		container.GetKnownStatus() == apicontainerstatus.ContainerStopped {
+		logger.Debug(fmt.Sprintf("%s %s", "Container instance-service-connect-relay is stopped.",
+			"Delaying 5 seconds before saving container to local state DB"), logger.Fields{
+			field.TaskID:    mtask.GetID(),
+			field.Container: container.Name,
+			field.RuntimeID: container.RuntimeID,
+		})
+		time.Sleep(5 * time.Second)
+	}
 }
 
 // handleResourceStateChange attempts to update resource's known status depending on
